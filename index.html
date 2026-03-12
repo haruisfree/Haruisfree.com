@@ -1,0 +1,139 @@
+<div id="game-container" style="background-color: #1e1e1e; color: white; padding: 20px; text-align: center; font-family: sans-serif;">
+    <h2 id="status" style="color: white;">Death Game: Center Chase</h2>
+    <canvas id="gameCanvas" width="600" height="600" style="border: 2px solid #3c3c3c; max-width: 100%; height: auto; cursor: pointer;"></canvas>
+    
+    <div style="margin-top: 15px; font-size: 14px; line-height: 1.6;">
+        <div id="info">차례: BLACK | 모드: ROOK (R키:룩 / K키:나이트)</div>
+        <div style="color: #bbb;"><b>[R]</b> 룩 | <b>[K]</b> 나이트 | <b>[P]</b> 패스 | <b>[U]</b> 무르기 | <b>[Enter]</b> 재시작</div>
+        <div id="timer" style="color: #ffd700; font-weight: bold; font-size: 18px; margin-top: 10px;">경과 시간: 0초</div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const statusEl = document.getElementById('status');
+    const infoEl = document.getElementById('info');
+    const timerEl = document.getElementById('timer');
+
+    const GRID_SIZE = 11;
+    const CELL_SIZE = canvas.width / GRID_SIZE;
+    const CENTER = 5;
+
+    let game = resetGameState();
+
+    function resetGameState() {
+        const b = [], w = [];
+        const lShape = [[0,0], [0,1], [0,2], [1,0], [2,0]];
+        lShape.forEach(([dx, dy]) => {
+            b.push([dx, dy], [10-dx, 10-dy]);
+            w.push([10-dx, dy], [dx, 10-dy]);
+        });
+        return {
+            blackPieces: b, whitePieces: w, turn: 'BLACK',
+            selectedPiece: null, moveMode: 'ROOK', possibleMoves: [],
+            winner: null, startTime: Date.now(), history: []
+        };
+    }
+
+    function isMeadow(x, y) { return Math.abs(x - CENTER) + Math.abs(y - CENTER) <= 2; }
+
+    function getMoves(pos, mode) {
+        const [cx, cy] = pos;
+        const allP = [...game.blackPieces, ...game.whitePieces];
+        const moves = [];
+        if (mode === 'ROOK') {
+            [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx, dy]) => {
+                let tx = cx, ty = cy;
+                while (true) {
+                    let nx = tx + dx, ny = ty + dy;
+                    if (nx>=0 && nx<GRID_SIZE && ny>=0 && ny<GRID_SIZE && !allP.some(p => p[0]===nx && p[1]===ny)) {
+                        tx = nx; ty = ny;
+                    } else { if (tx!==cx || ty!==cy) moves.push([tx, ty]); break; }
+                }
+            });
+        } else {
+            [[2,1],[2,-1],[-2,1],[-2,-1],[1,2],[1,-2],[-1,2],[-1,-2]].forEach(([dx, dy]) => {
+                let nx = cx+dx, ny = cy+dy;
+                if (nx>=0 && nx<GRID_SIZE && ny>=0 && ny<GRID_SIZE && !isMeadow(nx, ny) && !allP.some(p => p[0]===nx && p[1]===ny)) moves.push([nx, ny]);
+            });
+        }
+        return moves;
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let r = 0; r < GRID_SIZE; r++) {
+            for (let c = 0; c < GRID_SIZE; c++) {
+                ctx.strokeStyle = '#3c3c3c';
+                ctx.strokeRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+                if (c === CENTER && r === CENTER) { ctx.fillStyle = '#ffd700'; ctx.fillRect(c*CELL_SIZE+1, r*CELL_SIZE+1, CELL_SIZE-2, CELL_SIZE-2); }
+                else if (isMeadow(c, r)) { ctx.fillStyle = 'rgba(34, 139, 34, 0.4)'; ctx.fillRect(c*CELL_SIZE+1, r*CELL_SIZE+1, CELL_SIZE-2, CELL_SIZE-2); }
+            }
+        }
+        game.possibleMoves.forEach(([mx, my]) => { ctx.fillStyle = '#ff5050'; ctx.beginPath(); ctx.arc(mx*CELL_SIZE+CELL_SIZE/2, my*CELL_SIZE+CELL_SIZE/2, 6, 0, Math.PI*2); ctx.fill(); });
+        const drawP = (pcs, col, str) => pcs.forEach(p => {
+            ctx.fillStyle = col; ctx.beginPath(); ctx.arc(p[0]*CELL_SIZE+CELL_SIZE/2, p[1]*CELL_SIZE+CELL_SIZE/2, CELL_SIZE*0.35, 0, Math.PI*2); ctx.fill();
+            ctx.strokeStyle = str; ctx.lineWidth = 2; ctx.stroke();
+        });
+        drawP(game.blackPieces, '#0a0a0a', '#646464');
+        drawP(game.whitePieces, '#f0f0f0', '#000000');
+        if (game.selectedPiece) { ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(game.selectedPiece[0]*CELL_SIZE+CELL_SIZE/2, game.selectedPiece[1]*CELL_SIZE+CELL_SIZE/2, CELL_SIZE*0.4, 0, Math.PI*2); ctx.stroke(); }
+        
+        if (game.winner) statusEl.innerText = `🎉 ${game.winner} 승리!`;
+        else {
+            const elapsed = Math.floor((Date.now() - game.startTime) / 1000);
+            timerEl.innerText = `경과 시간: ${elapsed}초`;
+        }
+        infoEl.innerText = `차례: ${game.turn} | 모드: ${game.moveMode}`;
+    }
+
+    canvas.addEventListener('mousedown', (e) => {
+        if (game.winner) return;
+        const rect = canvas.getBoundingClientRect();
+        const tx = Math.floor((e.clientX - rect.left) / (rect.width / GRID_SIZE));
+        const ty = Math.floor((e.clientY - rect.top) / (rect.height / GRID_SIZE));
+        const currentPieces = game.turn === 'BLACK' ? game.blackPieces : game.whitePieces;
+        const clickedPiece = currentPieces.find(p => p[0] === tx && p[1] === ty);
+        if (clickedPiece) {
+            game.selectedPiece = clickedPiece;
+            game.possibleMoves = getMoves(clickedPiece, game.moveMode);
+        } else {
+            const move = game.possibleMoves.find(m => m[0] === tx && m[1] === ty);
+            if (move) {
+                game.history.push(JSON.parse(JSON.stringify({b: game.blackPieces, w: game.whitePieces, t: game.turn})));
+                const pIdx = currentPieces.findIndex(p => p[0] === game.selectedPiece[0] && p[1] === game.selectedPiece[1]);
+                currentPieces[pIdx] = [tx, ty];
+                if (tx === CENTER && ty === CENTER) game.winner = game.turn;
+                game.turn = game.turn === 'BLACK' ? 'WHITE' : 'BLACK';
+                game.selectedPiece = null; game.possibleMoves = [];
+            }
+        }
+        draw();
+    });
+
+    window.addEventListener('keydown', (e) => {
+        const key = e.key.toUpperCase();
+        if (key === 'ENTER') game = resetGameState();
+        if (game.winner) return;
+        if (key === 'R') game.moveMode = 'ROOK';
+        if (key === 'K') game.moveMode = 'KNIGHT';
+        if (key === 'P') {
+            game.history.push(JSON.parse(JSON.stringify({b: game.blackPieces, w: game.whitePieces, t: game.turn})));
+            game.turn = game.turn === 'BLACK' ? 'WHITE' : 'BLACK';
+            game.selectedPiece = null; game.possibleMoves = [];
+        }
+        if (key === 'U' && game.history.length > 0) {
+            const last = game.history.pop();
+            game.blackPieces = last.b; game.whitePieces = last.w; game.turn = last.t;
+            game.selectedPiece = null; game.possibleMoves = [];
+        }
+        if (game.selectedPiece) game.possibleMoves = getMoves(game.selectedPiece, game.moveMode);
+        draw();
+    });
+
+    setInterval(draw, 1000);
+    draw();
+})();
+</script>
